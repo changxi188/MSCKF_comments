@@ -5,13 +5,13 @@
  * All rights reserved.
  */
 
-#include <iostream>
-#include <algorithm>
-#include <set>
 #include <Eigen/Dense>
+#include <algorithm>
+#include <iostream>
+#include <set>
 
-#include <sensor_msgs/image_encodings.h>
 #include <random_numbers/random_numbers.h>
+#include <sensor_msgs/image_encodings.h>
 
 #include <msckf_vio/CameraMeasurement.h>
 #include <msckf_vio/TrackingInfo.h>
@@ -24,10 +24,13 @@ using namespace Eigen;
 
 namespace msckf_vio
 {
-ImageProcessor::ImageProcessor(ros::NodeHandle &n)
-    : nh(n), is_first_img(true), // img_transport(n),
-        stereo_sub(10), prev_features_ptr(new GridFeatures()),
-        curr_features_ptr(new GridFeatures())
+ImageProcessor::ImageProcessor(ros::NodeHandle& n)
+  : nh(n)
+  , is_first_img(true)
+  ,  // img_transport(n),
+  stereo_sub(10)
+  , prev_features_ptr(new GridFeatures())
+  , curr_features_ptr(new GridFeatures())
 {
     return;
 }
@@ -80,16 +83,14 @@ bool ImageProcessor::loadParameters()
 
     // 4. 左右目畸变
     vector<double> cam0_distortion_coeffs_temp(4);
-    nh.getParam("cam0/distortion_coeffs",
-                cam0_distortion_coeffs_temp);
+    nh.getParam("cam0/distortion_coeffs", cam0_distortion_coeffs_temp);
     cam0_distortion_coeffs[0] = cam0_distortion_coeffs_temp[0];
     cam0_distortion_coeffs[1] = cam0_distortion_coeffs_temp[1];
     cam0_distortion_coeffs[2] = cam0_distortion_coeffs_temp[2];
     cam0_distortion_coeffs[3] = cam0_distortion_coeffs_temp[3];
 
     vector<double> cam1_distortion_coeffs_temp(4);
-    nh.getParam("cam1/distortion_coeffs",
-                cam1_distortion_coeffs_temp);
+    nh.getParam("cam1/distortion_coeffs", cam1_distortion_coeffs_temp);
     cam1_distortion_coeffs[0] = cam1_distortion_coeffs_temp[0];
     cam1_distortion_coeffs[1] = cam1_distortion_coeffs_temp[1];
     cam1_distortion_coeffs[2] = cam1_distortion_coeffs_temp[2];
@@ -97,18 +98,18 @@ bool ImageProcessor::loadParameters()
 
     // 5. 左右目外参
     // 这里面的T_imu_cam0 表示 imu 到 cam0 的外参
-    cv::Mat T_imu_cam0 = utils::getTransformCV(nh, "cam0/T_cam_imu");
+    cv::Mat     T_imu_cam0 = utils::getTransformCV(nh, "cam0/T_cam_imu");
     cv::Matx33d R_imu_cam0(T_imu_cam0(cv::Rect(0, 0, 3, 3)));
-    cv::Vec3d t_imu_cam0 = T_imu_cam0(cv::Rect(3, 0, 1, 3));
-    R_cam0_imu = R_imu_cam0.t();
-    t_cam0_imu = -R_imu_cam0.t() * t_imu_cam0;
+    cv::Vec3d   t_imu_cam0 = T_imu_cam0(cv::Rect(3, 0, 1, 3));
+    R_cam0_imu             = R_imu_cam0.t();
+    t_cam0_imu             = -R_imu_cam0.t() * t_imu_cam0;
 
-    cv::Mat T_cam0_cam1 = utils::getTransformCV(nh, "cam1/T_cn_cnm1");
-    cv::Mat T_imu_cam1 = T_cam0_cam1 * T_imu_cam0;
+    cv::Mat     T_cam0_cam1 = utils::getTransformCV(nh, "cam1/T_cn_cnm1");
+    cv::Mat     T_imu_cam1  = T_cam0_cam1 * T_imu_cam0;
     cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0, 0, 3, 3)));
-    cv::Vec3d t_imu_cam1 = T_imu_cam1(cv::Rect(3, 0, 1, 3));
-    R_cam1_imu = R_imu_cam1.t();
-    t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
+    cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3, 0, 1, 3));
+    R_cam1_imu             = R_imu_cam1.t();
+    t_cam1_imu             = -R_imu_cam1.t() * t_imu_cam1;
 
     // Processor parameters
     // 6.处理图像线程所用的参数
@@ -116,78 +117,50 @@ bool ImageProcessor::loadParameters()
     nh.param<int>("grid_row", processor_config.grid_row, 4);
     nh.param<int>("grid_col", processor_config.grid_col, 4);
     // 每一格内最小与最大的特征点数量
-    nh.param<int>("grid_min_feature_num",
-                    processor_config.grid_min_feature_num, 2);
-    nh.param<int>("grid_max_feature_num",
-                    processor_config.grid_max_feature_num, 4);
+    nh.param<int>("grid_min_feature_num", processor_config.grid_min_feature_num, 2);
+    nh.param<int>("grid_max_feature_num", processor_config.grid_max_feature_num, 4);
 
     // 特征提取参数，包括金字塔层数，fast响应值等等
-    nh.param<int>("pyramid_levels",
-                    processor_config.pyramid_levels, 3);
-    nh.param<int>("patch_size",
-                    processor_config.patch_size, 31);
-    nh.param<int>("fast_threshold",
-                    processor_config.fast_threshold, 20);
-    nh.param<int>("max_iteration",
-                    processor_config.max_iteration, 30);
-    
+    nh.param<int>("pyramid_levels", processor_config.pyramid_levels, 3);
+    nh.param<int>("patch_size", processor_config.patch_size, 31);
+    nh.param<int>("fast_threshold", processor_config.fast_threshold, 20);
+    nh.param<int>("max_iteration", processor_config.max_iteration, 30);
+
     // 光流提取所用的参数
-    nh.param<double>("track_precision",
-                        processor_config.track_precision, 0.01);
-    nh.param<double>("ransac_threshold",
-                        processor_config.ransac_threshold, 3);
-    nh.param<double>("stereo_threshold",
-                        processor_config.stereo_threshold, 3);
+    nh.param<double>("track_precision", processor_config.track_precision, 0.01);
+    nh.param<double>("ransac_threshold", processor_config.ransac_threshold, 3);
+    nh.param<double>("stereo_threshold", processor_config.stereo_threshold, 3);
 
     // 剩下的都是显示了
     ROS_INFO("===========================================");
-    ROS_INFO("cam0_resolution: %d, %d",
-                cam0_resolution[0], cam0_resolution[1]);
-    ROS_INFO("cam0_intrinscs: %f, %f, %f, %f",
-                cam0_intrinsics[0], cam0_intrinsics[1],
-                cam0_intrinsics[2], cam0_intrinsics[3]);
-    ROS_INFO("cam0_distortion_model: %s",
-                cam0_distortion_model.c_str());
-    ROS_INFO("cam0_distortion_coefficients: %f, %f, %f, %f",
-                cam0_distortion_coeffs[0], cam0_distortion_coeffs[1],
-                cam0_distortion_coeffs[2], cam0_distortion_coeffs[3]);
+    ROS_INFO("cam0_resolution: %d, %d", cam0_resolution[0], cam0_resolution[1]);
+    ROS_INFO("cam0_intrinscs: %f, %f, %f, %f", cam0_intrinsics[0], cam0_intrinsics[1], cam0_intrinsics[2],
+             cam0_intrinsics[3]);
+    ROS_INFO("cam0_distortion_model: %s", cam0_distortion_model.c_str());
+    ROS_INFO("cam0_distortion_coefficients: %f, %f, %f, %f", cam0_distortion_coeffs[0], cam0_distortion_coeffs[1],
+             cam0_distortion_coeffs[2], cam0_distortion_coeffs[3]);
 
-    ROS_INFO("cam1_resolution: %d, %d",
-                cam1_resolution[0], cam1_resolution[1]);
-    ROS_INFO("cam1_intrinscs: %f, %f, %f, %f",
-                cam1_intrinsics[0], cam1_intrinsics[1],
-                cam1_intrinsics[2], cam1_intrinsics[3]);
-    ROS_INFO("cam1_distortion_model: %s",
-                cam1_distortion_model.c_str());
-    ROS_INFO("cam1_distortion_coefficients: %f, %f, %f, %f",
-                cam1_distortion_coeffs[0], cam1_distortion_coeffs[1],
-                cam1_distortion_coeffs[2], cam1_distortion_coeffs[3]);
+    ROS_INFO("cam1_resolution: %d, %d", cam1_resolution[0], cam1_resolution[1]);
+    ROS_INFO("cam1_intrinscs: %f, %f, %f, %f", cam1_intrinsics[0], cam1_intrinsics[1], cam1_intrinsics[2],
+             cam1_intrinsics[3]);
+    ROS_INFO("cam1_distortion_model: %s", cam1_distortion_model.c_str());
+    ROS_INFO("cam1_distortion_coefficients: %f, %f, %f, %f", cam1_distortion_coeffs[0], cam1_distortion_coeffs[1],
+             cam1_distortion_coeffs[2], cam1_distortion_coeffs[3]);
 
     cout << R_imu_cam0 << endl;
     cout << t_imu_cam0.t() << endl;
 
-    ROS_INFO("grid_row: %d",
-                processor_config.grid_row);
-    ROS_INFO("grid_col: %d",
-                processor_config.grid_col);
-    ROS_INFO("grid_min_feature_num: %d",
-                processor_config.grid_min_feature_num);
-    ROS_INFO("grid_max_feature_num: %d",
-                processor_config.grid_max_feature_num);
-    ROS_INFO("pyramid_levels: %d",
-                processor_config.pyramid_levels);
-    ROS_INFO("patch_size: %d",
-                processor_config.patch_size);
-    ROS_INFO("fast_threshold: %d",
-                processor_config.fast_threshold);
-    ROS_INFO("max_iteration: %d",
-                processor_config.max_iteration);
-    ROS_INFO("track_precision: %f",
-                processor_config.track_precision);
-    ROS_INFO("ransac_threshold: %f",
-                processor_config.ransac_threshold);
-    ROS_INFO("stereo_threshold: %f",
-                processor_config.stereo_threshold);
+    ROS_INFO("grid_row: %d", processor_config.grid_row);
+    ROS_INFO("grid_col: %d", processor_config.grid_col);
+    ROS_INFO("grid_min_feature_num: %d", processor_config.grid_min_feature_num);
+    ROS_INFO("grid_max_feature_num: %d", processor_config.grid_max_feature_num);
+    ROS_INFO("pyramid_levels: %d", processor_config.pyramid_levels);
+    ROS_INFO("patch_size: %d", processor_config.patch_size);
+    ROS_INFO("fast_threshold: %d", processor_config.fast_threshold);
+    ROS_INFO("max_iteration: %d", processor_config.max_iteration);
+    ROS_INFO("track_precision: %f", processor_config.track_precision);
+    ROS_INFO("ransac_threshold: %f", processor_config.ransac_threshold);
+    ROS_INFO("stereo_threshold: %f", processor_config.stereo_threshold);
     ROS_INFO("===========================================");
     return true;
 }
@@ -200,7 +173,7 @@ bool ImageProcessor::createRosIO()
     // 1. 发布
     // 发布名为feature的消息，缓存长度为3
     feature_pub = nh.advertise<CameraMeasurement>("features", 3);
-    // 发布名为tracking_info的消息，缓存长度为1    
+    // 发布名为tracking_info的消息，缓存长度为1
     tracking_info_pub = nh.advertise<TrackingInfo>("tracking_info", 1);
 
     // 发布名为debug_stereo_image的消息，缓存长度为1
@@ -249,9 +222,9 @@ bool ImageProcessor::initialize()
  * @param  cam1_img 右图消息
  * @see ImageProcessor::createRosIO()
  */
-void ImageProcessor::stereoCallback(const sensor_msgs::ImageConstPtr &cam0_img, const sensor_msgs::ImageConstPtr &cam1_img)
+void ImageProcessor::stereoCallback(const sensor_msgs::ImageConstPtr& cam0_img,
+                                    const sensor_msgs::ImageConstPtr& cam1_img)
 {
-
     // cout << "==================================" << endl;
 
     // Get the current image.
@@ -350,7 +323,7 @@ void ImageProcessor::stereoCallback(const sensor_msgs::ImageConstPtr &cam0_img, 
  * @brief 添加imu消息
  * @param  msg imu消息
  */
-void ImageProcessor::imuCallback(const sensor_msgs::ImuConstPtr &msg)
+void ImageProcessor::imuCallback(const sensor_msgs::ImuConstPtr& msg)
 {
     // Wait for the first image to be set.
     if (is_first_img)
@@ -365,7 +338,7 @@ void ImageProcessor::imuCallback(const sensor_msgs::ImuConstPtr &msg)
  */
 void ImageProcessor::createImagePyramids()
 {
-    const Mat &curr_cam0_img = cam0_curr_img_ptr->image;
+    const Mat& curr_cam0_img = cam0_curr_img_ptr->image;
     // 将输入的图像根据参数“缩放图片”，存放至curr_cam0_pyramid_，注意里面存放并非连续
     // 以euroc为例输入图像为752*480，取三层金字塔，curr_cam0_pyramid_的第0个是原图
     // 第2个是长宽缩小1倍的图像 376*240
@@ -373,7 +346,8 @@ void ImageProcessor::createImagePyramids()
     // 第6个也是
 
     // patch_size表示卷积处理窗口，必须不少于calcOpticalFlowPyrLK的winSize参数。
-    // @param withDerivatives 设置为每个金字塔等级预计算梯度。 如果金字塔是在没有梯度的情况下构建的，那么calcOpticalFlowPyrLK将在内部对其进行计算
+    // @param withDerivatives 设置为每个金字塔等级预计算梯度。
+    // 如果金字塔是在没有梯度的情况下构建的，那么calcOpticalFlowPyrLK将在内部对其进行计算
     // @param pyrBorder 金字塔图层的边框模式
     // @param derivBorder 梯度边框模式
     // @param tryReuseInputImage put ROI of input image into the pyramid if possible. You can pass false
@@ -384,20 +358,16 @@ void ImageProcessor::createImagePyramids()
     // 2)BORDER_REFLECT:反射:                       fedcba|abcdefgh|hgfedcb
     // 3)BORDER_REFLECT_101:反射101:                gfedcb|abcdefgh|gfedcba
     // 4)BORDER_WRAP:外包装：                       cdefgh|abcdefgh|abcdefg
-    // 5)BORDER_CONSTANT:常量复制：                 iiiiii|abcdefgh|iiiiiii(i的值由后一个参数Scalar()确定，如Scalar::all(0) )
+    // 5)BORDER_CONSTANT:常量复制： iiiiii|abcdefgh|iiiiiii(i的值由后一个参数Scalar()确定，如Scalar::all(0) )
     // borderValue:若上一参数为BORDER_CONSTANT，则由此参数确定补充上去的像素值。可选用默认值。
-    buildOpticalFlowPyramid(
-        curr_cam0_img, curr_cam0_pyramid_,
-        Size(processor_config.patch_size, processor_config.patch_size),
-        processor_config.pyramid_levels, true, BORDER_REFLECT_101,
-        BORDER_CONSTANT, false);
+    buildOpticalFlowPyramid(curr_cam0_img, curr_cam0_pyramid_,
+                            Size(processor_config.patch_size, processor_config.patch_size),
+                            processor_config.pyramid_levels, true, BORDER_REFLECT_101, BORDER_CONSTANT, false);
 
-    const Mat &curr_cam1_img = cam1_curr_img_ptr->image;
-    buildOpticalFlowPyramid(
-        curr_cam1_img, curr_cam1_pyramid_,
-        Size(processor_config.patch_size, processor_config.patch_size),
-        processor_config.pyramid_levels, true, BORDER_REFLECT_101,
-        BORDER_CONSTANT, false);
+    const Mat& curr_cam1_img = cam1_curr_img_ptr->image;
+    buildOpticalFlowPyramid(curr_cam1_img, curr_cam1_pyramid_,
+                            Size(processor_config.patch_size, processor_config.patch_size),
+                            processor_config.pyramid_levels, true, BORDER_REFLECT_101, BORDER_CONSTANT, false);
 }
 
 /**
@@ -414,9 +384,9 @@ void ImageProcessor::initializeFirstFrame()
 {
     // Size of each grid.
     // 1. 查看分的格的大小
-    const Mat &img = cam0_curr_img_ptr->image;
+    const Mat& img         = cam0_curr_img_ptr->image;
     static int grid_height = img.rows / processor_config.grid_row;
-    static int grid_width = img.cols / processor_config.grid_col;
+    static int grid_width  = img.cols / processor_config.grid_col;
 
     // Detect new features on the frist image.
     // 2. 计算原图fast特征点
@@ -430,15 +400,14 @@ void ImageProcessor::initializeFirstFrame()
     for (int i = 0; i < new_features.size(); ++i)
         cam0_points[i] = new_features[i].pt;
 
-
     // 3. 利用LKT光流法在cam1中找到和cam0中特征匹配的点，然后再利用双目相机约束筛选内点
-    vector<cv::Point2f> cam1_points(0);
+    vector<cv::Point2f>   cam1_points(0);
     vector<unsigned char> inlier_markers(0);
     stereoMatch(cam0_points, cam1_points, inlier_markers);
 
     vector<cv::Point2f> cam0_inliers(0);
     vector<cv::Point2f> cam1_inliers(0);
-    vector<float> response_inliers(0);
+    vector<float>       response_inliers(0);
     // 取出匹配的内点，分别存放至对应的变量中，并且对应位置是匹配的
     for (int i = 0; i < inlier_markers.size(); ++i)
     {
@@ -454,16 +423,16 @@ void ImageProcessor::initializeFirstFrame()
     // 4. 分格存入
 
     // 预备好格
-    GridFeatures grid_new_features; // typedef std::map<int, std::vector<FeatureMetaData>>
+    GridFeatures grid_new_features;  // typedef std::map<int, std::vector<FeatureMetaData>>
     for (int code = 0; code < processor_config.grid_row * processor_config.grid_col; ++code)
         grid_new_features[code] = vector<FeatureMetaData>(0);
 
     // 便利所有匹配的内点，根据像素坐标存放对应的网格
     for (int i = 0; i < cam0_inliers.size(); ++i)
     {
-        const cv::Point2f &cam0_point = cam0_inliers[i];
-        const cv::Point2f &cam1_point = cam1_inliers[i];
-        const float &response = response_inliers[i];
+        const cv::Point2f& cam0_point = cam0_inliers[i];
+        const cv::Point2f& cam1_point = cam1_inliers[i];
+        const float&       response   = response_inliers[i];
 
         int row = static_cast<int>(cam0_point.y / grid_height);
         int col = static_cast<int>(cam0_point.x / grid_width);
@@ -473,7 +442,7 @@ void ImageProcessor::initializeFirstFrame()
 
         // 存放，双目点一起存放
         FeatureMetaData new_feature;
-        new_feature.response = response;
+        new_feature.response   = response;
         new_feature.cam0_point = cam0_point;
         new_feature.cam1_point = cam1_point;
         grid_new_features[code].push_back(new_feature);
@@ -481,7 +450,7 @@ void ImageProcessor::initializeFirstFrame()
 
     // Sort the new features in each grid based on its response.
     // 5. 根据左目提取的点的响应值，每一格按照响应值的从大到小排序
-    for (auto &item : grid_new_features)
+    for (auto& item : grid_new_features)
         std::sort(item.second.begin(), item.second.end(), &ImageProcessor::featureCompareByResponse);
 
     // Collect new features within each grid with high response.
@@ -490,15 +459,15 @@ void ImageProcessor::initializeFirstFrame()
     for (int code = 0; code < processor_config.grid_row * processor_config.grid_col; ++code)
     {
         // 获取引用，即使curr_features_ptr里面没有这个值也能获取，相当于直接创建
-        vector<FeatureMetaData> &features_this_grid = (*curr_features_ptr)[code]; 
-        vector<FeatureMetaData> &new_features_this_grid = grid_new_features[code];
+        vector<FeatureMetaData>& features_this_grid     = (*curr_features_ptr)[code];
+        vector<FeatureMetaData>& new_features_this_grid = grid_new_features[code];
 
         // 向 features_this_grid 放数据， 可以理解成 grid_new_features 是一个临时的，没有数量限制的
         // 这步就是根据相应排好之后按照数量存放
         for (int k = 0; k < processor_config.grid_min_feature_num && k < new_features_this_grid.size(); ++k)
         {
             features_this_grid.push_back(new_features_this_grid[k]);
-            features_this_grid.back().id = next_feature_id++;
+            features_this_grid.back().id       = next_feature_id++;
             features_this_grid.back().lifetime = 1;
         }
     }
@@ -515,11 +484,9 @@ void ImageProcessor::initializeFirstFrame()
  * @param  compensated_pts 输出预测的点
  * @see ImageProcessor::trackFeatures()
  */
-void ImageProcessor::predictFeatureTracking(
-    const vector<cv::Point2f> &input_pts, const cv::Matx33f &R_p_c,
-    const cv::Vec4d &intrinsics, vector<cv::Point2f> &compensated_pts)
+void ImageProcessor::predictFeatureTracking(const vector<cv::Point2f>& input_pts, const cv::Matx33f& R_p_c,
+                                            const cv::Vec4d& intrinsics, vector<cv::Point2f>& compensated_pts)
 {
-
     // Return directly if there are no input features.
     // 1. 如果输入为0，清空返回
     if (input_pts.size() == 0)
@@ -530,10 +497,7 @@ void ImageProcessor::predictFeatureTracking(
     compensated_pts.resize(input_pts.size());
 
     // Intrinsic matrix.
-    cv::Matx33f K(
-        intrinsics[0], 0.0, intrinsics[2],
-        0.0, intrinsics[1], intrinsics[3],
-        0.0, 0.0, 1.0);
+    cv::Matx33f K(intrinsics[0], 0.0, intrinsics[2], 0.0, intrinsics[1], intrinsics[3], 0.0, 0.0, 1.0);
     // 2. 投到归一化坐标，旋转，再转回像素坐标
     // 没有去畸变，反正只是帮助预测，又不是定死了的位置，节省计算资源
     cv::Matx33f H = K * R_p_c * K.inv();
@@ -541,7 +505,7 @@ void ImageProcessor::predictFeatureTracking(
     for (int i = 0; i < input_pts.size(); ++i)
     {
         cv::Vec3f p1(input_pts[i].x, input_pts[i].y, 1.0f);
-        cv::Vec3f p2 = H * p1;
+        cv::Vec3f p2         = H * p1;
         compensated_pts[i].x = p2[0] / p2[2];
         compensated_pts[i].y = p2[1] / p2[2];
     }
@@ -560,7 +524,7 @@ void ImageProcessor::trackFeatures()
     // Size of each grid.
     // 网格大小，在很下面才会用到
     static int grid_height = cam0_curr_img_ptr->image.rows / processor_config.grid_row;
-    static int grid_width = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
+    static int grid_width  = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
 
     // Compute a rough relative rotation which takes a vector
     // from the previous frame to the current frame.
@@ -572,13 +536,13 @@ void ImageProcessor::trackFeatures()
     // Organize the features in the previous image.
     // 2. 相当于把上一帧所有点的相关信息全取出来
     vector<FeatureIDType> prev_ids(0);
-    vector<int> prev_lifetime(0);
-    vector<Point2f> prev_cam0_points(0);
-    vector<Point2f> prev_cam1_points(0);
+    vector<int>           prev_lifetime(0);
+    vector<Point2f>       prev_cam0_points(0);
+    vector<Point2f>       prev_cam1_points(0);
 
-    for (const auto &item : *prev_features_ptr)
+    for (const auto& item : *prev_features_ptr)
     {
-        for (const auto &prev_feature : item.second)
+        for (const auto& prev_feature : item.second)
         {
             prev_ids.push_back(prev_feature.id);
             prev_lifetime.push_back(prev_feature.lifetime);
@@ -599,20 +563,18 @@ void ImageProcessor::trackFeatures()
 
     // Track features using LK optical flow method.
     // 3. 利用输入的前一帧特征点图像坐标、前一帧到当前帧的旋转矩阵以及相机内参，预测当前帧中的特征点图像坐标
-    vector<Point2f> curr_cam0_points(0);
+    vector<Point2f>       curr_cam0_points(0);
     vector<unsigned char> track_inliers(0);
     predictFeatureTracking(prev_cam0_points, cam0_R_p_c, cam0_intrinsics, curr_cam0_points);
 
     // 4. 光流跟踪，都是在未去畸变的点上做的
     calcOpticalFlowPyrLK(
-        prev_cam0_pyramid_, curr_cam0_pyramid_, // 左相机上一帧与当前帧的图片（多层金字塔）
-        prev_cam0_points, curr_cam0_points,     // 前后特征点
-        track_inliers, noArray(),
-        Size(processor_config.patch_size, processor_config.patch_size),
+        prev_cam0_pyramid_, curr_cam0_pyramid_,  // 左相机上一帧与当前帧的图片（多层金字塔）
+        prev_cam0_points, curr_cam0_points,      // 前后特征点
+        track_inliers, noArray(), Size(processor_config.patch_size, processor_config.patch_size),
         processor_config.pyramid_levels,
-        TermCriteria(TermCriteria::COUNT + TermCriteria::EPS,
-                        processor_config.max_iteration,
-                        processor_config.track_precision),
+        TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, processor_config.max_iteration,
+                     processor_config.track_precision),
         cv::OPTFLOW_USE_INITIAL_FLOW);  // OPTFLOW_USE_INITIAL_FLOW使用存储在curr_cam0_points中的初始估计值
 
     // Mark those tracked points out of the image region
@@ -622,19 +584,17 @@ void ImageProcessor::trackFeatures()
     {
         if (track_inliers[i] == 0)
             continue;
-        if (curr_cam0_points[i].y < 0 ||
-            curr_cam0_points[i].y > cam0_curr_img_ptr->image.rows - 1 ||
-            curr_cam0_points[i].x < 0 ||
-            curr_cam0_points[i].x > cam0_curr_img_ptr->image.cols - 1)
+        if (curr_cam0_points[i].y < 0 || curr_cam0_points[i].y > cam0_curr_img_ptr->image.rows - 1 ||
+            curr_cam0_points[i].x < 0 || curr_cam0_points[i].x > cam0_curr_img_ptr->image.cols - 1)
             track_inliers[i] = 0;
     }
 
     // Collect the tracked points.
     vector<FeatureIDType> prev_tracked_ids(0);
-    vector<int> prev_tracked_lifetime(0);
-    vector<Point2f> prev_tracked_cam0_points(0);
-    vector<Point2f> prev_tracked_cam1_points(0);
-    vector<Point2f> curr_tracked_cam0_points(0);
+    vector<int>           prev_tracked_lifetime(0);
+    vector<Point2f>       prev_tracked_cam0_points(0);
+    vector<Point2f>       prev_tracked_cam1_points(0);
+    vector<Point2f>       curr_tracked_cam0_points(0);
 
     // 5. 删除外点，且剩下的依然是一一对应的点
     removeUnmarkedElements(prev_ids, track_inliers, prev_tracked_ids);
@@ -668,17 +628,17 @@ void ImageProcessor::trackFeatures()
     // Step 1: stereo matching.
     // 6. 进一步去除外点
     // 6.1 将上一步跟踪到当前帧的点通过左右目匹配去除外点
-    vector<Point2f> curr_cam1_points(0);
+    vector<Point2f>       curr_cam1_points(0);
     vector<unsigned char> match_inliers(0);
     // 利用LKT光流法和双目外参约束，在当前cam1上找到和当前cam0上匹配的特征点
     stereoMatch(curr_tracked_cam0_points, curr_cam1_points, match_inliers);
 
     vector<FeatureIDType> prev_matched_ids(0);
-    vector<int> prev_matched_lifetime(0);
-    vector<Point2f> prev_matched_cam0_points(0);
-    vector<Point2f> prev_matched_cam1_points(0);
-    vector<Point2f> curr_matched_cam0_points(0);
-    vector<Point2f> curr_matched_cam1_points(0);
+    vector<int>           prev_matched_lifetime(0);
+    vector<Point2f>       prev_matched_cam0_points(0);
+    vector<Point2f>       prev_matched_cam1_points(0);
+    vector<Point2f>       curr_matched_cam0_points(0);
+    vector<Point2f>       curr_matched_cam1_points(0);
 
     // 左右光流删除外点
     removeUnmarkedElements(prev_tracked_ids, match_inliers, prev_matched_ids);
@@ -697,16 +657,14 @@ void ImageProcessor::trackFeatures()
     // prev_matched_cam0_points curr_matched_cam0_points curr_matched_cam1_points prev_matched_cam1_points
     // 上面这些都是一一对应的，
     vector<int> cam0_ransac_inliers(0);
-    twoPointRansac(prev_matched_cam0_points, curr_matched_cam0_points,
-        cam0_R_p_c, cam0_intrinsics, cam0_distortion_model,
-        cam0_distortion_coeffs, processor_config.ransac_threshold,
-        0.99, cam0_ransac_inliers);
+    twoPointRansac(prev_matched_cam0_points, curr_matched_cam0_points, cam0_R_p_c, cam0_intrinsics,
+                   cam0_distortion_model, cam0_distortion_coeffs, processor_config.ransac_threshold, 0.99,
+                   cam0_ransac_inliers);
 
     vector<int> cam1_ransac_inliers(0);
-    twoPointRansac(prev_matched_cam1_points, curr_matched_cam1_points,
-        cam1_R_p_c, cam1_intrinsics, cam1_distortion_model,
-        cam1_distortion_coeffs, processor_config.ransac_threshold,
-        0.99, cam1_ransac_inliers);
+    twoPointRansac(prev_matched_cam1_points, curr_matched_cam1_points, cam1_R_p_c, cam1_intrinsics,
+                   cam1_distortion_model, cam1_distortion_coeffs, processor_config.ransac_threshold, 0.99,
+                   cam1_ransac_inliers);
     // 此时左右目的前后帧分别计算出了两批内外点结果
     // Number of features after ransac.
     after_ransac = 0;
@@ -716,16 +674,16 @@ void ImageProcessor::trackFeatures()
         if (cam0_ransac_inliers[i] == 0 || cam1_ransac_inliers[i] == 0)
             continue;
         // 确定当前帧的内点根据坐标确定在哪个格后分格存入，供下一帧使用
-        int row = static_cast<int>(curr_matched_cam0_points[i].y / grid_height);
-        int col = static_cast<int>(curr_matched_cam0_points[i].x / grid_width);
+        int row  = static_cast<int>(curr_matched_cam0_points[i].y / grid_height);
+        int col  = static_cast<int>(curr_matched_cam0_points[i].x / grid_width);
         int code = row * processor_config.grid_col + col;
         (*curr_features_ptr)[code].push_back(FeatureMetaData());
 
-        FeatureMetaData &grid_new_feature = (*curr_features_ptr)[code].back();
-        grid_new_feature.id = prev_matched_ids[i];
-        grid_new_feature.lifetime = ++prev_matched_lifetime[i];
-        grid_new_feature.cam0_point = curr_matched_cam0_points[i];
-        grid_new_feature.cam1_point = curr_matched_cam1_points[i];
+        FeatureMetaData& grid_new_feature = (*curr_features_ptr)[code].back();
+        grid_new_feature.id               = prev_matched_ids[i];
+        grid_new_feature.lifetime         = ++prev_matched_lifetime[i];
+        grid_new_feature.cam0_point       = curr_matched_cam0_points[i];
+        grid_new_feature.cam1_point       = curr_matched_cam1_points[i];
 
         ++after_ransac;
     }
@@ -733,19 +691,16 @@ void ImageProcessor::trackFeatures()
     // 8. 后面是统计了
     // Compute the tracking rate.
     int prev_feature_num = 0;
-    for (const auto &item : *prev_features_ptr)
+    for (const auto& item : *prev_features_ptr)
         prev_feature_num += item.second.size();
 
     int curr_feature_num = 0;
-    for (const auto &item : *curr_features_ptr)
+    for (const auto& item : *curr_features_ptr)
         curr_feature_num += item.second.size();
 
-    ROS_INFO_THROTTLE(
-        0.5, "\033[0;32m candidates: %d; track: %d; match: %d; ransac: %d/%d=%f\033[0m",
-        before_tracking, after_tracking, after_matching,
-        curr_feature_num, prev_feature_num,
-        static_cast<double>(curr_feature_num) /
-            (static_cast<double>(prev_feature_num) + 1e-5));
+    ROS_INFO_THROTTLE(0.5, "\033[0;32m candidates: %d; track: %d; match: %d; ransac: %d/%d=%f\033[0m", before_tracking,
+                      after_tracking, after_matching, curr_feature_num, prev_feature_num,
+                      static_cast<double>(curr_feature_num) / (static_cast<double>(prev_feature_num) + 1e-5));
     // printf(
     //     "\033[0;32m candidates: %d; raw track: %d; stereo match: %d; ransac: %d/%d=%f\033[0m\n",
     //     before_tracking, after_tracking, after_matching,
@@ -757,17 +712,17 @@ void ImageProcessor::trackFeatures()
 }
 
 /**
- * @brief 进行双目相机特征-像素点匹配，先用LKT光流法在cam1图像上找到和cam0图像特征点匹配的像素点（这个过程中会进行一轮筛选），
+ * @brief
+ * 进行双目相机特征-像素点匹配，先用LKT光流法在cam1图像上找到和cam0图像特征点匹配的像素点（这个过程中会进行一轮筛选），
  * 然后再利用双目相机外参计算得到本质矩阵，利用对极约束再一次筛选匹配点
  * @param  cam0_points 左图像的特征点，输入
  * @param  cam1_points 与cam0_points匹配的点
  * @param  inlier_markers 内点
  * @see ImageProcessor::addNewFeatures()  ImageProcessor::trackFeatures()  ImageProcessor::initializeFirstFrame()
  */
-void ImageProcessor::stereoMatch(
-    const vector<cv::Point2f> &cam0_points, vector<cv::Point2f> &cam1_points, vector<unsigned char> &inlier_markers)
+void ImageProcessor::stereoMatch(const vector<cv::Point2f>& cam0_points, vector<cv::Point2f>& cam1_points,
+                                 vector<unsigned char>& inlier_markers)
 {
-
     if (cam0_points.size() == 0)
         return;
 
@@ -777,28 +732,34 @@ void ImageProcessor::stereoMatch(
         // Initialize cam1_points by projecting cam0_points to cam1 using the
         // rotation from stereo extrinsics
         // 1. 计算左相机到右相机的旋转，你没看错是左到右
-        const cv::Matx33d R_cam0_cam1 = R_cam1_imu.t() * R_cam0_imu;
+        const cv::Matx33d   R_cam0_cam1 = R_cam1_imu.t() * R_cam0_imu;
         vector<cv::Point2f> cam0_points_undistorted;
-        // 2. 看输入，因为输入newK是单位矩阵，所以计算完一定是归一化坐标的，旋转是从左到右，也就是把左相机的点先弄到归一化，然后去畸变，去完旋转到跟右相机平行的归一化平面上
-        undistortPoints(cam0_points, cam0_intrinsics, cam0_distortion_model, cam0_distortion_coeffs, cam0_points_undistorted, R_cam0_cam1);
+        // 2.
+        // 看输入，因为输入newK是单位矩阵，所以计算完一定是归一化坐标的，旋转是从左到右，也就是把左相机的点先弄到归一化，然后去畸变，去完旋转到跟右相机平行的归一化平面上
+        undistortPoints(cam0_points, cam0_intrinsics, cam0_distortion_model, cam0_distortion_coeffs,
+                        cam0_points_undistorted, R_cam0_cam1);
 
         // 得到在右相机上面带畸变的像素点
         // 有了这些点的归一化坐标后做投影
-        cam1_points = distortPoints(cam0_points_undistorted, cam1_intrinsics, cam1_distortion_model, cam1_distortion_coeffs);
+        cam1_points =
+            distortPoints(cam0_points_undistorted, cam1_intrinsics, cam1_distortion_model, cam1_distortion_coeffs);
     }
 
     // Track features using LK optical flow method.
     // 3. 光流匹配找点，中间去除一些误匹配
     calcOpticalFlowPyrLK(
         curr_cam0_pyramid_, curr_cam1_pyramid_,  // 左相机与右相机当前帧的图片（多层金字塔）
-        cam0_points, cam1_points,  // 左右特征点，一一对应的，当OPTFLOW_USE_INITIAL_FLOW参数传入时，cam1_points传入的值作为cam1中特征位置初值，但它最终会用来存放cam1特征点输出值
-        inlier_markers, noArray(),  // 内点， 每个点跟踪的误差
+        cam0_points,
+        cam1_points,  // 左右特征点，一一对应的，当OPTFLOW_USE_INITIAL_FLOW参数传入时，cam1_points传入的值作为cam1中特征位置初值，但它最终会用来存放cam1特征点输出值
+        inlier_markers, noArray(),                                       // 内点， 每个点跟踪的误差
         Size(processor_config.patch_size, processor_config.patch_size),  // 搜索范围
-        processor_config.pyramid_levels,  // 金字塔层数
+        processor_config.pyramid_levels,                                 // 金字塔层数
         TermCriteria(
             TermCriteria::COUNT + TermCriteria::EPS,
-            processor_config.max_iteration,  // 用来限制每层金字塔上LKT光流跟踪的迭代次数，即畸变光流未收敛，当到达迭代次数时也停止迭代。
-            processor_config.track_precision), // track_precision用来限制每层金字塔LKT光流跟踪的迭代终止阈值，即当某次迭代光流小于该阈值时则停止迭代。
+            processor_config
+                .max_iteration,  // 用来限制每层金字塔上LKT光流跟踪的迭代次数，即畸变光流未收敛，当到达迭代次数时也停止迭代。
+            processor_config
+                .track_precision),  // track_precision用来限制每层金字塔LKT光流跟踪的迭代终止阈值，即当某次迭代光流小于该阈值时则停止迭代。
         cv::OPTFLOW_USE_INITIAL_FLOW);  // 使用初值
 
     // Mark those tracked points out of the image region
@@ -808,9 +769,7 @@ void ImageProcessor::stereoMatch(
     {
         if (inlier_markers[i] == 0)
             continue;
-        if (cam1_points[i].y < 0 ||
-            cam1_points[i].y > cam1_curr_img_ptr->image.rows - 1 ||
-            cam1_points[i].x < 0 ||
+        if (cam1_points[i].y < 0 || cam1_points[i].y > cam1_curr_img_ptr->image.rows - 1 || cam1_points[i].x < 0 ||
             cam1_points[i].x > cam1_curr_img_ptr->image.cols - 1)
             inlier_markers[i] = 0;
     }
@@ -818,13 +777,11 @@ void ImageProcessor::stereoMatch(
     // Compute the relative rotation between the cam0 frame and cam1 frame.
     // 0->1的旋转与平移
     const cv::Matx33d R_cam0_cam1 = R_cam1_imu.t() * R_cam0_imu;
-    const cv::Vec3d t_cam0_cam1 = R_cam1_imu.t() * (t_cam0_imu - t_cam1_imu);
+    const cv::Vec3d   t_cam0_cam1 = R_cam1_imu.t() * (t_cam0_imu - t_cam1_imu);
     // Compute the essential matrix.
     // 4. 计算本质矩阵  [t]x * R
-    const cv::Matx33d t_cam0_cam1_hat(
-        0.0, -t_cam0_cam1[2], t_cam0_cam1[1],
-        t_cam0_cam1[2], 0.0, -t_cam0_cam1[0],
-        -t_cam0_cam1[1], t_cam0_cam1[0], 0.0);
+    const cv::Matx33d t_cam0_cam1_hat(0.0, -t_cam0_cam1[2], t_cam0_cam1[1], t_cam0_cam1[2], 0.0, -t_cam0_cam1[0],
+                                      -t_cam0_cam1[1], t_cam0_cam1[0], 0.0);
     const cv::Matx33d E = t_cam0_cam1_hat * R_cam0_cam1;
 
     // Further remove outliers based on the known
@@ -833,12 +790,10 @@ void ImageProcessor::stereoMatch(
     vector<cv::Point2f> cam0_points_undistorted(0);
     vector<cv::Point2f> cam1_points_undistorted(0);
     // 5. 单纯的畸变矫正，不涉及双目基线约束，结果为归一化平面上的点
-    undistortPoints(
-        cam0_points, cam0_intrinsics, cam0_distortion_model,
-        cam0_distortion_coeffs, cam0_points_undistorted);
-    undistortPoints(
-        cam1_points, cam1_intrinsics, cam1_distortion_model,
-        cam1_distortion_coeffs, cam1_points_undistorted);
+    undistortPoints(cam0_points, cam0_intrinsics, cam0_distortion_model, cam0_distortion_coeffs,
+                    cam0_points_undistorted);
+    undistortPoints(cam1_points, cam1_intrinsics, cam1_distortion_model, cam1_distortion_coeffs,
+                    cam1_points_undistorted);
     // 计算一个1/f 的平均值
     double norm_pixel_unit = 4.0 / (cam0_intrinsics[0] + cam0_intrinsics[1] + cam1_intrinsics[0] + cam1_intrinsics[1]);
 
@@ -854,9 +809,8 @@ void ImageProcessor::stereoMatch(
         cv::Vec3d epipolar_line = E * pt0;
 
         // 点到线的距离
-        double error =
-            fabs((pt1.t() * epipolar_line)[0]) /
-            sqrt(epipolar_line[0] * epipolar_line[0] + epipolar_line[1] * epipolar_line[1]);
+        double error = fabs((pt1.t() * epipolar_line)[0]) /
+                       sqrt(epipolar_line[0] * epipolar_line[0] + epipolar_line[1] * epipolar_line[1]);
         if (error > processor_config.stereo_threshold * norm_pixel_unit)
             inlier_markers[i] = 0;
     }
@@ -870,26 +824,25 @@ void ImageProcessor::stereoMatch(
 void ImageProcessor::addNewFeatures()
 {
     // 取出当前左目图片
-    const Mat &curr_img = cam0_curr_img_ptr->image;
+    const Mat& curr_img = cam0_curr_img_ptr->image;
 
     // Size of each grid.
     static int grid_height = cam0_curr_img_ptr->image.rows / processor_config.grid_row;
-    static int grid_width = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
+    static int grid_width  = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
 
     // Create a mask to avoid redetecting existing features.
     Mat mask(curr_img.rows, curr_img.cols, CV_8U, Scalar(1));
     // 1. 已经有特征的区域在mask上填充0，一定范围内，避免重复提取
     // 便利所有跟踪成功的点
-    for (const auto &features : *curr_features_ptr)
+    for (const auto& features : *curr_features_ptr)
     {
-        for (const auto &feature : features.second)
+        for (const auto& feature : features.second)
         {
             const int y = static_cast<int>(feature.cam0_point.y);
             const int x = static_cast<int>(feature.cam0_point.x);
 
             // 划片，就是这个点附近都不能再有点了
-            int up_lim = y - 2, bottom_lim = y + 3,
-                left_lim = x - 2, right_lim = x + 3;
+            int up_lim = y - 2, bottom_lim = y + 3, left_lim = x - 2, right_lim = x + 3;
             if (up_lim < 0)
                 up_lim = 0;
             if (bottom_lim > curr_img.rows)
@@ -914,7 +867,7 @@ void ImageProcessor::addNewFeatures()
     // Select the ones with top response within each grid afterwards.
     // 3. 新提取的特征点按照网格存入计算数量
     vector<vector<KeyPoint>> new_feature_sieve(processor_config.grid_row * processor_config.grid_col);
-    for (const auto &feature : new_features)
+    for (const auto& feature : new_features)
     {
         int row = static_cast<int>(feature.pt.y / grid_height);
         int col = static_cast<int>(feature.pt.x / grid_width);
@@ -923,7 +876,7 @@ void ImageProcessor::addNewFeatures()
 
     // 3.1 分格主要用于限制每格内点数，限制完之后重新放入new_features
     new_features.clear();
-    for (auto &item : new_feature_sieve)
+    for (auto& item : new_feature_sieve)
     {
         // 删除超过数量的点
         if (item.size() > processor_config.grid_max_feature_num)
@@ -944,14 +897,14 @@ void ImageProcessor::addNewFeatures()
         cam0_points[i] = new_features[i].pt;
 
     // 4.1 左右目匹配
-    vector<cv::Point2f> cam1_points(0);
+    vector<cv::Point2f>   cam1_points(0);
     vector<unsigned char> inlier_markers(0);
     stereoMatch(cam0_points, cam1_points, inlier_markers);
 
     // 4.2 匹配完内点取出
     vector<cv::Point2f> cam0_inliers(0);
     vector<cv::Point2f> cam1_inliers(0);
-    vector<float> response_inliers(0);
+    vector<float>       response_inliers(0);
     for (int i = 0; i < inlier_markers.size(); ++i)
     {
         if (inlier_markers[i] == 0)
@@ -963,7 +916,8 @@ void ImageProcessor::addNewFeatures()
 
     int matched_new_features = cam0_inliers.size();
 
-    if (matched_new_features < 5 && static_cast<double>(matched_new_features) / static_cast<double>(detected_new_features) < 0.1)
+    if (matched_new_features < 5 &&
+        static_cast<double>(matched_new_features) / static_cast<double>(detected_new_features) < 0.1)
         ROS_WARN("Images at [%f] seems unsynced...", cam0_curr_img_ptr->header.stamp.toSec());
 
     // Group the features into grids
@@ -974,16 +928,16 @@ void ImageProcessor::addNewFeatures()
 
     for (int i = 0; i < cam0_inliers.size(); ++i)
     {
-        const cv::Point2f &cam0_point = cam0_inliers[i];
-        const cv::Point2f &cam1_point = cam1_inliers[i];
-        const float &response = response_inliers[i];
+        const cv::Point2f& cam0_point = cam0_inliers[i];
+        const cv::Point2f& cam1_point = cam1_inliers[i];
+        const float&       response   = response_inliers[i];
 
-        int row = static_cast<int>(cam0_point.y / grid_height);
-        int col = static_cast<int>(cam0_point.x / grid_width);
+        int row  = static_cast<int>(cam0_point.y / grid_height);
+        int col  = static_cast<int>(cam0_point.x / grid_width);
         int code = row * processor_config.grid_col + col;
 
         FeatureMetaData new_feature;
-        new_feature.response = response;
+        new_feature.response   = response;
         new_feature.cam0_point = cam0_point;
         new_feature.cam1_point = cam1_point;
         grid_new_features[code].push_back(new_feature);
@@ -991,7 +945,7 @@ void ImageProcessor::addNewFeatures()
 
     // 6. 与本身跟踪的点共同放入curr_features_ptr，同时确保每个格里面的点数不超过设定值
     // Sort the new features in each grid based on its response.
-    for (auto &item : grid_new_features)
+    for (auto& item : grid_new_features)
         std::sort(item.second.begin(), item.second.end(), &ImageProcessor::featureCompareByResponse);
 
     int new_added_feature_num = 0;
@@ -999,8 +953,8 @@ void ImageProcessor::addNewFeatures()
     // 遍历所有格
     for (int code = 0; code < processor_config.grid_row * processor_config.grid_col; ++code)
     {
-        vector<FeatureMetaData> &features_this_grid = (*curr_features_ptr)[code];
-        vector<FeatureMetaData> &new_features_this_grid = grid_new_features[code];
+        vector<FeatureMetaData>& features_this_grid     = (*curr_features_ptr)[code];
+        vector<FeatureMetaData>& new_features_this_grid = grid_new_features[code];
 
         // 如果这个格内跟踪的点已经够数了，就不要新的点了
         if (features_this_grid.size() >= processor_config.grid_min_feature_num)
@@ -1011,7 +965,7 @@ void ImageProcessor::addNewFeatures()
         for (int k = 0; k < vacancy_num && k < new_features_this_grid.size(); ++k)
         {
             features_this_grid.push_back(new_features_this_grid[k]);
-            features_this_grid.back().id = next_feature_id++;
+            features_this_grid.back().id       = next_feature_id++;
             features_this_grid.back().lifetime = 1;
 
             ++new_added_feature_num;
@@ -1029,9 +983,9 @@ void ImageProcessor::addNewFeatures()
  */
 void ImageProcessor::pruneGridFeatures()
 {
-    for (auto &item : *curr_features_ptr)
+    for (auto& item : *curr_features_ptr)
     {
-        auto &grid_features = item.second;
+        auto& grid_features = item.second;
         // Continue if the number of features in this grid does
         // not exceed the upper bound.
         if (grid_features.size() <= processor_config.grid_max_feature_num)
@@ -1043,7 +997,8 @@ void ImageProcessor::pruneGridFeatures()
 }
 
 /**
- * @brief 根据图像点的像素坐标、相机内参矩阵、畸变模型和系数，得到图像点在相机系下去畸变的像素坐标，如果使用默认的最后两个参数则是归一化坐标
+ * @brief
+ * 根据图像点的像素坐标、相机内参矩阵、畸变模型和系数，得到图像点在相机系下去畸变的像素坐标，如果使用默认的最后两个参数则是归一化坐标
  * @param  pts_in 输入像素点
  * @param  intrinsics fx, fy, cx, cy
  * @param  distortion_model 相机畸变模型
@@ -1052,24 +1007,18 @@ void ImageProcessor::pruneGridFeatures()
  * @param  rectification_matrix R矩阵
  * @param  new_intrinsics 矫正后的内参矩阵
  */
-void ImageProcessor::undistortPoints(
-    const vector<cv::Point2f> &pts_in, const cv::Vec4d &intrinsics, const string &distortion_model,
-    const cv::Vec4d &distortion_coeffs, vector<cv::Point2f> &pts_out, const cv::Matx33d &rectification_matrix,
-    const cv::Vec4d &new_intrinsics)
+void ImageProcessor::undistortPoints(const vector<cv::Point2f>& pts_in, const cv::Vec4d& intrinsics,
+                                     const string& distortion_model, const cv::Vec4d& distortion_coeffs,
+                                     vector<cv::Point2f>& pts_out, const cv::Matx33d& rectification_matrix,
+                                     const cv::Vec4d& new_intrinsics)
 {
-
     if (pts_in.size() == 0)
         return;
 
-    const cv::Matx33d K(
-        intrinsics[0], 0.0, intrinsics[2],
-        0.0, intrinsics[1], intrinsics[3],
-        0.0, 0.0, 1.0);
+    const cv::Matx33d K(intrinsics[0], 0.0, intrinsics[2], 0.0, intrinsics[1], intrinsics[3], 0.0, 0.0, 1.0);
 
-    const cv::Matx33d K_new(
-        new_intrinsics[0], 0.0, new_intrinsics[2],
-        0.0, new_intrinsics[1], new_intrinsics[3],
-        0.0, 0.0, 1.0);
+    const cv::Matx33d K_new(new_intrinsics[0], 0.0, new_intrinsics[2], 0.0, new_intrinsics[1], new_intrinsics[3], 0.0,
+                            0.0, 1.0);
 
     // undistortPoints 计算流程
     /**
@@ -1111,16 +1060,11 @@ void ImageProcessor::undistortPoints(
  * @param  distortion_coeffs 畸变系数
  * @return 像素坐标的点
  */
-vector<cv::Point2f> ImageProcessor::distortPoints(
-    const vector<cv::Point2f> &pts_in, const cv::Vec4d &intrinsics, const string &distortion_model,
-    const cv::Vec4d &distortion_coeffs)
+vector<cv::Point2f> ImageProcessor::distortPoints(const vector<cv::Point2f>& pts_in, const cv::Vec4d& intrinsics,
+                                                  const string& distortion_model, const cv::Vec4d& distortion_coeffs)
 {
-
     // 1. 内参矩阵
-    const cv::Matx33d K(
-        intrinsics[0], 0.0, intrinsics[2],
-        0.0, intrinsics[1], intrinsics[3],
-        0.0, 0.0, 1.0);
+    const cv::Matx33d K(intrinsics[0], 0.0, intrinsics[2], 0.0, intrinsics[1], intrinsics[3], 0.0, 0.0, 1.0);
 
     vector<cv::Point2f> pts_out;
     // 2. 不同模型的加畸变函数
@@ -1152,7 +1096,7 @@ vector<cv::Point2f> ImageProcessor::distortPoints(
  * @param  cam1_R_p_c 右相机的旋转
  * @see ImageProcessor::trackFeatures()
  */
-void ImageProcessor::integrateImuData(Matx33f &cam0_R_p_c, Matx33f &cam1_R_p_c)
+void ImageProcessor::integrateImuData(Matx33f& cam0_R_p_c, Matx33f& cam1_R_p_c)
 {
     // Find the start and the end limit within the imu msg buffer.
     auto begin_iter = imu_msg_buffer.begin();
@@ -1215,9 +1159,8 @@ void ImageProcessor::integrateImuData(Matx33f &cam0_R_p_c, Matx33f &cam1_R_p_c)
  * @param  pts2 归一化坐标
  * @param  scaling_factor 尺度
  */
-void ImageProcessor::rescalePoints(vector<Point2f> &pts1, vector<Point2f> &pts2, float &scaling_factor)
+void ImageProcessor::rescalePoints(vector<Point2f>& pts1, vector<Point2f>& pts2, float& scaling_factor)
 {
-
     scaling_factor = 0.0f;
 
     // 求数个sqrt(x^2 + y^2)的和
@@ -1252,12 +1195,11 @@ void ImageProcessor::rescalePoints(vector<Point2f> &pts1, vector<Point2f> &pts2,
  * @param  inlier_markers 内外点
  * @see ImageProcessor::trackFeatures()
  */
-void ImageProcessor::twoPointRansac(
-    const vector<Point2f> &pts1, const vector<Point2f> &pts2, const cv::Matx33f &R_p_c, const cv::Vec4d &intrinsics,
-    const std::string &distortion_model, const cv::Vec4d &distortion_coeffs, const double &inlier_error,
-    const double &success_probability, vector<int> &inlier_markers)
+void ImageProcessor::twoPointRansac(const vector<Point2f>& pts1, const vector<Point2f>& pts2, const cv::Matx33f& R_p_c,
+                                    const cv::Vec4d& intrinsics, const std::string& distortion_model,
+                                    const cv::Vec4d& distortion_coeffs, const double& inlier_error,
+                                    const double& success_probability, vector<int>& inlier_markers)
 {
-
     // Check the size of input point size.
     if (pts1.size() != pts2.size())
         ROS_ERROR("Sets of different size (%lu and %lu) are used...", pts1.size(), pts2.size());
@@ -1282,13 +1224,13 @@ void ImageProcessor::twoPointRansac(
     // Compenstate the points in the previous image with
     // the relative rotation.
     // 2. 通过旋转将pts1_undistorted点转换到pts2_undistorted的相机坐标下，注意这里没做平移，且没有将第三维弄成1
-    for (auto &pt : pts1_undistorted)
+    for (auto& pt : pts1_undistorted)
     {
         Vec3f pt_h(pt.x, pt.y, 1.0f);
         // Vec3f pt_hc = dR * pt_h;
         Vec3f pt_hc = R_p_c * pt_h;
-        pt.x = pt_hc[0];
-        pt.y = pt_hc[1];
+        pt.x        = pt_hc[0];
+        pt.y        = pt_hc[1];
     }
 
     // Normalize the points to gain numerical stability.
@@ -1310,7 +1252,7 @@ void ImageProcessor::twoPointRansac(
     // are computed.
     // 4. 通过上面的差值剔除一些较大的，因为要做RANSAC，所以尽量的先把外点剔除一部分
     double mean_pt_distance = 0.0;
-    int raw_inlier_cntr = 0;
+    int    raw_inlier_cntr  = 0;
     for (int i = 0; i < pts_diff.size(); ++i)
     {
         double distance = sqrt(pts_diff[i].dot(pts_diff[i]));
@@ -1338,7 +1280,7 @@ void ImageProcessor::twoPointRansac(
     // 前端没有所谓的是否丢失，最多是没有点跟踪上，导致后端没办法更新而已
     if (raw_inlier_cntr < 3)
     {
-        for (auto &marker : inlier_markers)
+        for (auto& marker : inlier_markers)
             marker = 0;
         return;
     }
@@ -1349,8 +1291,8 @@ void ImageProcessor::twoPointRansac(
     // work. If so, the distance between the matched points will
     // be almost 0.
     // if (mean_pt_distance < inlier_error*norm_pixel_unit) {
-    // 6. 如果平均差较小， 一个像素 ，就不做ransac了，因为此时平移几乎是0，运动退化，没必要在估计t了，所以不用下面的RANSAC
-    // 使用经验值进一步剔除外点
+    // 6. 如果平均差较小， 一个像素
+    // ，就不做ransac了，因为此时平移几乎是0，运动退化，没必要在估计t了，所以不用下面的RANSAC 使用经验值进一步剔除外点
     if (mean_pt_distance < norm_pixel_unit)
     {
         // ROS_WARN_THROTTLE(1.0, "Degenerated motion...");
@@ -1384,8 +1326,8 @@ void ImageProcessor::twoPointRansac(
             raw_inlier_idx.push_back(i);
     }
 
-    vector<int> best_inlier_set;
-    double best_error = 1e10;
+    vector<int>                           best_inlier_set;
+    double                                best_error = 1e10;
     random_numbers::RandomNumberGenerator random_gen;
 
     for (int iter_idx = 0; iter_idx < iter_num; ++iter_idx)
@@ -1394,29 +1336,28 @@ void ImageProcessor::twoPointRansac(
         // Although this is a weird way of selecting two pairs, but it
         // is able to efficiently avoid selecting repetitive pairs.
         // 7.3 选择非重复的两个点
-        int select_idx1 = random_gen.uniformInteger(0, raw_inlier_idx.size() - 1);
+        int select_idx1     = random_gen.uniformInteger(0, raw_inlier_idx.size() - 1);
         int select_idx_diff = random_gen.uniformInteger(1, raw_inlier_idx.size() - 1);
         // 到这里上面两个数有可能出现重复的
         // 经过下面处理实现获取两个不相等的id
-        int select_idx2 = 
-            select_idx1 + select_idx_diff < raw_inlier_idx.size() ?
-                select_idx1 + select_idx_diff :
-                select_idx1 + select_idx_diff - raw_inlier_idx.size();
+        int select_idx2 = select_idx1 + select_idx_diff < raw_inlier_idx.size() ?
+                              select_idx1 + select_idx_diff :
+                              select_idx1 + select_idx_diff - raw_inlier_idx.size();
 
         int pair_idx1 = raw_inlier_idx[select_idx1];
         int pair_idx2 = raw_inlier_idx[select_idx2];
 
         // | y1 - y2, -(x1 - x2), x1y2 - x2y1 |         tx       0
-        // |                                  |    *    ty   ~= 
+        // |                                  |    *    ty   ~=
         // | y3 - y4, -(x3 - x4), x3y4 - x4y3 |         tz       0
 
         // Construct the model;
         // coeff_tx = [y1 - y2, y3 - y4]
         // coeff_ty = [-(x1 - x2), -(x3 - x4)]
         // coeff_tz = [x1y2 - x2y1, x3y4 - x4y3]
-        Vector2d coeff_tx(coeff_t(pair_idx1, 0), coeff_t(pair_idx2, 0));
-        Vector2d coeff_ty(coeff_t(pair_idx1, 1), coeff_t(pair_idx2, 1));
-        Vector2d coeff_tz(coeff_t(pair_idx1, 2), coeff_t(pair_idx2, 2));
+        Vector2d       coeff_tx(coeff_t(pair_idx1, 0), coeff_t(pair_idx2, 0));
+        Vector2d       coeff_ty(coeff_t(pair_idx1, 1), coeff_t(pair_idx2, 1));
+        Vector2d       coeff_tz(coeff_t(pair_idx1, 2), coeff_t(pair_idx2, 2));
         vector<double> coeff_l1_norm(3);
         // 1范数，所有元素绝对值的合
         coeff_l1_norm[0] = coeff_tx.lpNorm<1>();
@@ -1435,27 +1376,27 @@ void ImageProcessor::twoPointRansac(
             Matrix2d A;
             A << coeff_ty, coeff_tz;
             Vector2d solution = A.inverse() * (-coeff_tx);
-            model(0) = 1.0;
-            model(1) = solution(0);
-            model(2) = solution(1);
+            model(0)          = 1.0;
+            model(1)          = solution(0);
+            model(2)          = solution(1);
         }
         else if (base_indicator == 1)
         {
             Matrix2d A;
             A << coeff_tx, coeff_tz;
             Vector2d solution = A.inverse() * (-coeff_ty);
-            model(0) = solution(0);
-            model(1) = 1.0;
-            model(2) = solution(1);
+            model(0)          = solution(0);
+            model(1)          = 1.0;
+            model(2)          = solution(1);
         }
         else
         {
             Matrix2d A;
             A << coeff_tx, coeff_ty;
             Vector2d solution = A.inverse() * (-coeff_tz);
-            model(0) = solution(0);
-            model(1) = solution(1);
-            model(2) = 1.0;
+            model(0)          = solution(0);
+            model(1)          = solution(1);
+            model(2)          = 1.0;
         }
 
         // 7.4 选出内点
@@ -1497,31 +1438,28 @@ void ImageProcessor::twoPointRansac(
             MatrixXd A(inlier_set.size(), 2);
             A << coeff_ty_better, coeff_tz_better;
             // 计算伪逆
-            Vector2d solution =
-                (A.transpose() * A).inverse() * A.transpose() * (-coeff_tx_better);
-            model_better(0) = 1.0;
-            model_better(1) = solution(0);
-            model_better(2) = solution(1);
+            Vector2d solution = (A.transpose() * A).inverse() * A.transpose() * (-coeff_tx_better);
+            model_better(0)   = 1.0;
+            model_better(1)   = solution(0);
+            model_better(2)   = solution(1);
         }
         else if (base_indicator == 1)
         {
             MatrixXd A(inlier_set.size(), 2);
             A << coeff_tx_better, coeff_tz_better;
-            Vector2d solution =
-                (A.transpose() * A).inverse() * A.transpose() * (-coeff_ty_better);
-            model_better(0) = solution(0);
-            model_better(1) = 1.0;
-            model_better(2) = solution(1);
+            Vector2d solution = (A.transpose() * A).inverse() * A.transpose() * (-coeff_ty_better);
+            model_better(0)   = solution(0);
+            model_better(1)   = 1.0;
+            model_better(2)   = solution(1);
         }
         else
         {
             MatrixXd A(inlier_set.size(), 2);
             A << coeff_tx_better, coeff_ty_better;
-            Vector2d solution =
-                (A.transpose() * A).inverse() * A.transpose() * (-coeff_tz_better);
-            model_better(0) = solution(0);
-            model_better(1) = solution(1);
-            model_better(2) = 1.0;
+            Vector2d solution = (A.transpose() * A).inverse() * A.transpose() * (-coeff_tz_better);
+            model_better(0)   = solution(0);
+            model_better(1)   = solution(1);
+            model_better(2)   = 1.0;
         }
 
         // Compute the error and upate the best model if possible.
@@ -1529,13 +1467,13 @@ void ImageProcessor::twoPointRansac(
 
         // 统计内点数量与得分
         double this_error = 0.0;
-        for (const auto &inlier_idx : inlier_set)
+        for (const auto& inlier_idx : inlier_set)
             this_error += std::abs(new_error(inlier_idx));
         this_error /= inlier_set.size();
 
         if (inlier_set.size() > best_inlier_set.size())
         {
-            best_error = this_error;
+            best_error      = this_error;
             best_inlier_set = inlier_set;
         }
     }
@@ -1544,7 +1482,7 @@ void ImageProcessor::twoPointRansac(
     // Fill in the markers.
     inlier_markers.clear();
     inlier_markers.resize(pts1.size(), 0);
-    for (const auto &inlier_idx : best_inlier_set)
+    for (const auto& inlier_idx : best_inlier_set)
         inlier_markers[inlier_idx] = 1;
 
     // printf("inlier ratio: %lu/%lu\n",
@@ -1558,19 +1496,18 @@ void ImageProcessor::twoPointRansac(
  */
 void ImageProcessor::publish()
 {
-
     // Publish features.
     CameraMeasurementPtr feature_msg_ptr(new CameraMeasurement);
     feature_msg_ptr->header.stamp = cam0_curr_img_ptr->header.stamp;
 
     // 1. 取出当前帧所有跟踪上的+新提取的特征点
     vector<FeatureIDType> curr_ids(0);
-    vector<Point2f> curr_cam0_points(0);
-    vector<Point2f> curr_cam1_points(0);
+    vector<Point2f>       curr_cam0_points(0);
+    vector<Point2f>       curr_cam1_points(0);
 
-    for (const auto &grid_features : (*curr_features_ptr))
+    for (const auto& grid_features : (*curr_features_ptr))
     {
-        for (const auto &feature : grid_features.second)
+        for (const auto& feature : grid_features.second)
         {
             curr_ids.push_back(feature.id);
             curr_cam0_points.push_back(feature.cam0_point);
@@ -1581,12 +1518,10 @@ void ImageProcessor::publish()
     vector<Point2f> curr_cam0_points_undistorted(0);
     vector<Point2f> curr_cam1_points_undistorted(0);
     // 2. 去畸变，注意！！！！！这里的输入最后的相机内参矩阵没有，所以输出为归一化的坐标
-    undistortPoints(
-        curr_cam0_points, cam0_intrinsics, cam0_distortion_model,
-        cam0_distortion_coeffs, curr_cam0_points_undistorted);
-    undistortPoints(
-        curr_cam1_points, cam1_intrinsics, cam1_distortion_model,
-        cam1_distortion_coeffs, curr_cam1_points_undistorted);
+    undistortPoints(curr_cam0_points, cam0_intrinsics, cam0_distortion_model, cam0_distortion_coeffs,
+                    curr_cam0_points_undistorted);
+    undistortPoints(curr_cam1_points, cam1_intrinsics, cam1_distortion_model, cam1_distortion_coeffs,
+                    curr_cam1_points_undistorted);
 
     // 3. 发送消息，存放的是所有点以及id
     for (int i = 0; i < curr_ids.size(); ++i)
@@ -1604,11 +1539,11 @@ void ImageProcessor::publish()
     // Publish tracking info.
     // 4. 发一些个数类型的数据
     TrackingInfoPtr tracking_info_msg_ptr(new TrackingInfo());
-    tracking_info_msg_ptr->header.stamp = cam0_curr_img_ptr->header.stamp;
+    tracking_info_msg_ptr->header.stamp    = cam0_curr_img_ptr->header.stamp;
     tracking_info_msg_ptr->before_tracking = before_tracking;
-    tracking_info_msg_ptr->after_tracking = after_tracking;
-    tracking_info_msg_ptr->after_matching = after_matching;
-    tracking_info_msg_ptr->after_ransac = after_ransac;
+    tracking_info_msg_ptr->after_tracking  = after_tracking;
+    tracking_info_msg_ptr->after_matching  = after_matching;
+    tracking_info_msg_ptr->after_ransac    = after_ransac;
     tracking_info_pub.publish(tracking_info_msg_ptr);
 
     return;
@@ -1623,14 +1558,12 @@ void ImageProcessor::drawFeaturesMono()
     Scalar tracked(0, 255, 0);
     Scalar new_feature(0, 255, 255);
 
-    static int grid_height =
-        cam0_curr_img_ptr->image.rows / processor_config.grid_row;
-    static int grid_width =
-        cam0_curr_img_ptr->image.cols / processor_config.grid_col;
+    static int grid_height = cam0_curr_img_ptr->image.rows / processor_config.grid_row;
+    static int grid_width  = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
 
     // Create an output image.
     int img_height = cam0_curr_img_ptr->image.rows;
-    int img_width = cam0_curr_img_ptr->image.cols;
+    int img_width  = cam0_curr_img_ptr->image.cols;
     Mat out_img(img_height, img_width, CV_8UC3);
     cvtColor(cam0_curr_img_ptr->image, out_img, CV_GRAY2RGB);
 
@@ -1650,27 +1583,26 @@ void ImageProcessor::drawFeaturesMono()
 
     // Collect features ids in the previous frame.
     vector<FeatureIDType> prev_ids(0);
-    for (const auto &grid_features : *prev_features_ptr)
-        for (const auto &feature : grid_features.second)
+    for (const auto& grid_features : *prev_features_ptr)
+        for (const auto& feature : grid_features.second)
             prev_ids.push_back(feature.id);
 
     // Collect feature points in the previous frame.
     map<FeatureIDType, Point2f> prev_points;
-    for (const auto &grid_features : *prev_features_ptr)
-        for (const auto &feature : grid_features.second)
+    for (const auto& grid_features : *prev_features_ptr)
+        for (const auto& feature : grid_features.second)
             prev_points[feature.id] = feature.cam0_point;
 
     // Collect feature points in the current frame.
     map<FeatureIDType, Point2f> curr_points;
-    for (const auto &grid_features : *curr_features_ptr)
-        for (const auto &feature : grid_features.second)
+    for (const auto& grid_features : *curr_features_ptr)
+        for (const auto& feature : grid_features.second)
             curr_points[feature.id] = feature.cam0_point;
 
     // Draw tracked features.
-    for (const auto &id : prev_ids)
+    for (const auto& id : prev_ids)
     {
-        if (prev_points.find(id) != prev_points.end() &&
-            curr_points.find(id) != curr_points.end())
+        if (prev_points.find(id) != prev_points.end() && curr_points.find(id) != curr_points.end())
         {
             cv::Point2f prev_pt = prev_points[id];
             cv::Point2f curr_pt = curr_points[id];
@@ -1683,7 +1615,7 @@ void ImageProcessor::drawFeaturesMono()
     }
 
     // Draw new features.
-    for (const auto &new_curr_point : curr_points)
+    for (const auto& new_curr_point : curr_points)
     {
         cv::Point2f pt = new_curr_point.second;
         circle(out_img, pt, 3, new_feature, -1);
@@ -1698,7 +1630,6 @@ void ImageProcessor::drawFeaturesMono()
  */
 void ImageProcessor::drawFeaturesStereo()
 {
-
     if (debug_stereo_pub.getNumSubscribers() > 0)
     {
         // Colors for different features.
@@ -1708,20 +1639,16 @@ void ImageProcessor::drawFeaturesStereo()
         Scalar new_feature(0, 255, 255);
 
         // 网格大小
-        static int grid_height =
-            cam0_curr_img_ptr->image.rows / processor_config.grid_row;
-        static int grid_width =
-            cam0_curr_img_ptr->image.cols / processor_config.grid_col;
+        static int grid_height = cam0_curr_img_ptr->image.rows / processor_config.grid_row;
+        static int grid_width  = cam0_curr_img_ptr->image.cols / processor_config.grid_col;
 
         // Create an output image.
         // 1. 把左右目图片拼一块
         int img_height = cam0_curr_img_ptr->image.rows;
-        int img_width = cam0_curr_img_ptr->image.cols;
+        int img_width  = cam0_curr_img_ptr->image.cols;
         Mat out_img(img_height, img_width * 2, CV_8UC3);
-        cvtColor(cam0_curr_img_ptr->image,
-                    out_img.colRange(0, img_width), CV_GRAY2RGB);
-        cvtColor(cam1_curr_img_ptr->image,
-                    out_img.colRange(img_width, img_width * 2), CV_GRAY2RGB);
+        cvtColor(cam0_curr_img_ptr->image, out_img.colRange(0, img_width), CV_GRAY2RGB);
+        cvtColor(cam1_curr_img_ptr->image, out_img.colRange(img_width, img_width * 2), CV_GRAY2RGB);
 
         // Draw grids on the image.
         // 2. 画格
@@ -1747,16 +1674,16 @@ void ImageProcessor::drawFeaturesStereo()
         // Collect features ids in the previous frame.
         // 3. 取出上一帧特征点id
         vector<FeatureIDType> prev_ids(0);
-        for (const auto &grid_features : *prev_features_ptr)
-            for (const auto &feature : grid_features.second)
+        for (const auto& grid_features : *prev_features_ptr)
+            for (const auto& feature : grid_features.second)
                 prev_ids.push_back(feature.id);
 
         // Collect feature points in the previous frame.
         // 4. 取出上一帧特征点id与对应的左右目特征点
         map<FeatureIDType, Point2f> prev_cam0_points;
         map<FeatureIDType, Point2f> prev_cam1_points;
-        for (const auto &grid_features : *prev_features_ptr)
-            for (const auto &feature : grid_features.second)
+        for (const auto& grid_features : *prev_features_ptr)
+            for (const auto& feature : grid_features.second)
             {
                 prev_cam0_points[feature.id] = feature.cam0_point;
                 prev_cam1_points[feature.id] = feature.cam1_point;
@@ -1766,8 +1693,8 @@ void ImageProcessor::drawFeaturesStereo()
         // 5. 取出当前帧特征点id与对应的左右目特征点
         map<FeatureIDType, Point2f> curr_cam0_points;
         map<FeatureIDType, Point2f> curr_cam1_points;
-        for (const auto &grid_features : *curr_features_ptr)
-            for (const auto &feature : grid_features.second)
+        for (const auto& grid_features : *curr_features_ptr)
+            for (const auto& feature : grid_features.second)
             {
                 curr_cam0_points[feature.id] = feature.cam0_point;
                 curr_cam1_points[feature.id] = feature.cam1_point;
@@ -1775,7 +1702,7 @@ void ImageProcessor::drawFeaturesStereo()
 
         // Draw tracked features.
         // 6. 画匹配的点，画线，拖尾
-        for (const auto &id : prev_ids)
+        for (const auto& id : prev_ids)
         {
             if (prev_cam0_points.find(id) != prev_cam0_points.end() &&
                 curr_cam0_points.find(id) != curr_cam0_points.end())
@@ -1799,11 +1726,10 @@ void ImageProcessor::drawFeaturesStereo()
 
         // Draw new features.
         // 7. 画新添加的点
-        for (const auto &new_cam0_point : curr_cam0_points)
+        for (const auto& new_cam0_point : curr_cam0_points)
         {
             cv::Point2f pt0 = new_cam0_point.second;
-            cv::Point2f pt1 = curr_cam1_points[new_cam0_point.first] +
-                                Point2f(img_width, 0.0);
+            cv::Point2f pt1 = curr_cam1_points[new_cam0_point.first] + Point2f(img_width, 0.0);
 
             circle(out_img, pt0, 3, new_feature, -1);
             circle(out_img, pt1, 3, new_feature, -1);
@@ -1826,8 +1752,8 @@ void ImageProcessor::updateFeatureLifetime()
 {
     for (int code = 0; code < processor_config.grid_row * processor_config.grid_col; ++code)
     {
-        vector<FeatureMetaData> &features = (*curr_features_ptr)[code];
-        for (const auto &feature : features)
+        vector<FeatureMetaData>& features = (*curr_features_ptr)[code];
+        for (const auto& feature : features)
         {
             if (feature_lifetime.find(feature.id) == feature_lifetime.end())
                 feature_lifetime[feature.id] = 1;
@@ -1843,9 +1769,8 @@ void ImageProcessor::updateFeatureLifetime()
  */
 void ImageProcessor::featureLifetimeStatistics()
 {
-
     map<int, int> lifetime_statistics;
-    for (const auto &data : feature_lifetime) // std::map<FeatureIDType, int>
+    for (const auto& data : feature_lifetime)  // std::map<FeatureIDType, int>
     {
         if (lifetime_statistics.find(data.second) == lifetime_statistics.end())
             lifetime_statistics[data.second] = 1;
@@ -1853,10 +1778,10 @@ void ImageProcessor::featureLifetimeStatistics()
             ++lifetime_statistics[data.second];
     }
 
-    for (const auto &data : lifetime_statistics)
+    for (const auto& data : lifetime_statistics)
         cout << data.first << " : " << data.second << endl;
 
     return;
 }
 
-} // end namespace msckf_vio
+}  // end namespace msckf_vio

@@ -22,4 +22,4 @@ void ImageProcessorNodelet::onInit()
 
 PLUGINLIB_EXPORT_CLASS(msckf_vio::ImageProcessorNodelet, nodelet::Nodelet);
 
-} // end namespace msckf_vio
+}  // end namespace msckf_vio
